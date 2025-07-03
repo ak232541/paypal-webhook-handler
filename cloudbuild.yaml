@@ -1,0 +1,11 @@
+steps:
+- name: 'gcr.io/cloud-builders/gcloud'
+  args:
+  - 'run'
+  - 'deploy'
+  - 'paypalwebhookhandler' # Your Cloud Run service name
+  - '--source=.'
+  - '--region=us-central1' # Your function's region
+  - '--allow-unauthenticated' # Or --no-allow-unauthenticated if you want to secure it
+  - '--project=guided-botswana' # Your Google Cloud Project ID
+  id: Deploy to Cloud Run
