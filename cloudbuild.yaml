@@ -3,12 +3,12 @@ steps:
   args:
   - 'run'
   - 'deploy'
-  - 'paypalwebhookhandler' # Your Cloud Run service name
+  - 'paypalwebhookhandler'
   - '--source=.'
-  - '--region=us-central1' # Your function's region
-  - '--allow-unauthenticated' # Or --no-allow-unauthenticated if you want to secure it
-  - '--project=guided-botswana' # Your Google Cloud Project ID
+  - '--region=us-central1'
+  - '--allow-unauthenticated'
+  - '--project=guided-botswana'
   id: Deploy to Cloud Run
 options:
   logging: GCS_ONLY
-logsBucket: gs://<YOUR_LOGS_BUCKET_NAME> # NEW LINE: Specify your Cloud Storage bucket for logs
+logsBucket: gs://guided-botswana-cloudbuild-logs
