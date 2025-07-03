@@ -11,4 +11,4 @@ steps:
   id: Deploy to Cloud Run
 options:
   logging: GCS_ONLY
-logsBucket: gs://guided-botswana-cloudbuild-logs
+logsBucket: gs://paypal-webhook-build-logs
