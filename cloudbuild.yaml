@@ -9,3 +9,6 @@ steps:
   - '--allow-unauthenticated' # Or --no-allow-unauthenticated if you want to secure it
   - '--project=guided-botswana' # Your Google Cloud Project ID
   id: Deploy to Cloud Run
+options:
+  logging: GCS_ONLY
+logsBucket: gs://<YOUR_LOGS_BUCKET_NAME> # NEW LINE: Specify your Cloud Storage bucket for logs
