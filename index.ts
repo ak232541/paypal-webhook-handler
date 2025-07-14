@@ -149,68 +149,69 @@ export const paypalWebhookHandler = functions.https.onRequest(async (req, res) =
 
                 if (userId && (paymentStatus === 'COMPLETED' || paymentStatus === 'APPROVED')) {
                     const userRef = db.collection('users').doc(userId);
+
                     await db.runTransaction(async (transaction) => {
+                        //  All reads must be done before any writes.
                         const userDoc = await transaction.get(userRef);
+
                         if (!userDoc.exists) {
                             functions.logger.warn(`User document not found for webhook customId: ${userId}.`);
-                            // Potentially create a basic user record if not found, or just log.
-                            return; // Exit transaction if user not found
+                            return; // Exit if user does not exist.
                         }
 
-                        const userData = userDoc.data();
-                        const salespersonFullName = userData?.salesperson?.fullName;
+                        const userData = userDoc.data()!;
+                        const salespersonFullName = userData.salesperson?.fullName;
+                        let salespersonRef: admin.firestore.DocumentReference | null = null;
+                        let spDoc: admin.firestore.DocumentSnapshot | null = null;
 
-                        // Calculate expiry date: 2 weeks from now
-                        const newExpiryDate = admin.firestore.Timestamp.fromMillis(Date.now() + (14 * 24 * 60 * 60 * 1000));
+                        if (salespersonFullName) {
+                            salespersonRef = db.collection('salespersons').doc(salespersonFullName);
+                            spDoc = await transaction.get(salespersonRef); // Read salesperson document.
+                        }
 
-                        // Update user's payment status and membership expiry in Firestore
-                        // Note: selectedTierId is NOT available in webhook context unless specifically passed by PayPal which is not standard.
-                        // We can try to infer it or just mark as 'unknown' if not critical.
+                        // All writes now happen after all reads.
+                        const newExpiryDate = admin.firestore.Timestamp.fromMillis(Date.now() + 14 * 24 * 60 * 60 * 1000);
                         transaction.update(userRef, {
                             paymentStatus: 'paid',
                             membershipExpiry: newExpiryDate,
-                            // paymentTier: selectedTierId || 'unknown', // Removed as selectedTierId is from CallableRequest, not webhook
                             lastPaymentDate: admin.firestore.FieldValue.serverTimestamp(),
                             paypalOrderId: orderId,
                             paypalPayerEmail: payerEmail,
                             paypalGrossAmount: grossAmount,
-                            paypalCurrencyCode: currencyCode
+                            paypalCurrencyCode: currencyCode,
                         });
 
-                        // Update salesperson's commission
-                        if (salespersonFullName) {
+                        if (salespersonFullName && salespersonRef) {
                             const commissionRate = 0.20; // 20% commission
                             const commissionEarned = grossAmount * commissionRate;
-                            const salespersonRef = db.collection('salespersons').doc(salespersonFullName);
 
-                            const spDoc = await transaction.get(salespersonRef);
-                            if (spDoc.exists) {
+                            if (spDoc && spDoc.exists) {
                                 transaction.update(salespersonRef, {
                                     currentMonthEarnings: admin.firestore.FieldValue.increment(commissionEarned),
                                     totalSales: admin.firestore.FieldValue.increment(1),
-                                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                                    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
                                 });
                                 functions.logger.info(`Salesperson ${salespersonFullName} earnings updated: +${commissionEarned}.`);
                             } else {
                                 functions.logger.warn(`Salesperson document missing for ${salespersonFullName}. Creating new record.`);
                                 transaction.set(salespersonRef, {
-                                    firstName: salespersonFullName.split(' ')[0] || null, // Best guess
-                                    lastName: salespersonFullName.split(' ')[1] || null, // Best guess
+                                    firstName: salespersonFullName.split(' ')[0] || '',
+                                    lastName: salespersonFullName.split(' ')[1] || '',
                                     fullName: salespersonFullName,
                                     currentMonthEarnings: commissionEarned,
                                     totalSales: 1,
-                                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                                    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
                                 });
                             }
-                            // Optionally, log individual sale for detailed monthly payouts
-                            const currentMonth = new Date().toISOString().substring(0, 7); //YYYY-MM
+
+                            const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
                             const individualSaleRef = salespersonRef.collection('monthlyPayouts').doc(currentMonth).collection('individualSales').doc();
                             transaction.set(individualSaleRef, {
                                 userId: userId,
                                 orderId: orderId,
                                 amount: grossAmount,
                                 commission: commissionEarned,
-                                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                                timestamp: admin.firestore.FieldValue.serverTimestamp(),
                             });
                         } else {
                             functions.logger.info(`User ${userId} has no associated salesperson.`);
