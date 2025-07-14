@@ -151,25 +151,13 @@ export const paypalWebhookHandler = functions.https.onRequest(async (req, res) =
                     const userRef = db.collection('users').doc(userId);
 
                     await db.runTransaction(async (transaction) => {
-                        //  All reads must be done before any writes.
                         const userDoc = await transaction.get(userRef);
 
                         if (!userDoc.exists) {
                             functions.logger.warn(`User document not found for webhook customId: ${userId}.`);
-                            return; // Exit if user does not exist.
+                            return;
                         }
 
-                        const userData = userDoc.data()!;
-                        const salespersonFullName = userData.salesperson?.fullName;
-                        let salespersonRef: admin.firestore.DocumentReference | null = null;
-                        let spDoc: admin.firestore.DocumentSnapshot | null = null;
-
-                        if (salespersonFullName) {
-                            salespersonRef = db.collection('salespersons').doc(salespersonFullName);
-                            spDoc = await transaction.get(salespersonRef); // Read salesperson document.
-                        }
-
-                        // All writes now happen after all reads.
                         const newExpiryDate = admin.firestore.Timestamp.fromMillis(Date.now() + 14 * 24 * 60 * 60 * 1000);
                         transaction.update(userRef, {
                             paymentStatus: 'paid',
@@ -180,42 +168,6 @@ export const paypalWebhookHandler = functions.https.onRequest(async (req, res) =
                             paypalGrossAmount: grossAmount,
                             paypalCurrencyCode: currencyCode,
                         });
-
-                        if (salespersonFullName && salespersonRef) {
-                            const commissionRate = 0.20; // 20% commission
-                            const commissionEarned = grossAmount * commissionRate;
-
-                            if (spDoc && spDoc.exists) {
-                                transaction.update(salespersonRef, {
-                                    currentMonthEarnings: admin.firestore.FieldValue.increment(commissionEarned),
-                                    totalSales: admin.firestore.FieldValue.increment(1),
-                                    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-                                });
-                                functions.logger.info(`Salesperson ${salespersonFullName} earnings updated: +${commissionEarned}.`);
-                            } else {
-                                functions.logger.warn(`Salesperson document missing for ${salespersonFullName}. Creating new record.`);
-                                transaction.set(salespersonRef, {
-                                    firstName: salespersonFullName.split(' ')[0] || '',
-                                    lastName: salespersonFullName.split(' ')[1] || '',
-                                    fullName: salespersonFullName,
-                                    currentMonthEarnings: commissionEarned,
-                                    totalSales: 1,
-                                    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-                                });
-                            }
-
-                            const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
-                            const individualSaleRef = salespersonRef.collection('monthlyPayouts').doc(currentMonth).collection('individualSales').doc();
-                            transaction.set(individualSaleRef, {
-                                userId: userId,
-                                orderId: orderId,
-                                amount: grossAmount,
-                                commission: commissionEarned,
-                                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            });
-                        } else {
-                            functions.logger.info(`User ${userId} has no associated salesperson.`);
-                        }
                     });
                 }
                 break;
